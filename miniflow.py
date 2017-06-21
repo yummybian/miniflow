@@ -3,6 +3,7 @@
 
 import numpy as np
 
+
 class Node(object):
     """
     Base class for nodes in the network.
@@ -48,23 +49,20 @@ class Node(object):
 
 
 class Input(Node):
+    """
+    A generic input into the network.
+    """
     def __init__(self):
-        # an Input node has no inbound nodes,
-        # so no need to pass anything to the Node instantiator
+        # The base class constructor has to run to set all
+        # the properties here.
+        #
+        # The most important property on an Input is value.
+        # self.value is set during `topological_sort` later.
         Node.__init__(self)
 
-    # NOTE: Input node is the only node that may
-    # receive its value as an argument to forward().
-    #
-    # All other node implementations should calculate their
-    # values from the value of previous nodes, using
-    # self.inbound_nodes
-    #
-    # Example:
-    # val0 = self.inbound_nodes[0].value
-    def forward(self, value=None):
-        if value is not None:
-            self.value = value
+    def forward(self):
+        # Do nothing because nothing is calculated.
+        pass
 
     def backward(self):
         # An Input node has no inputs so the gradient (derivative)
@@ -76,18 +74,23 @@ class Input(Node):
         for n in self.outbound_nodes:
             self.gradients[self] += n.gradients[self]
 
-
 class Linear(Node):
+    """
+    Represents a node that performs a linear transform.
+    """
     def __init__(self, X, W, b):
-        # Notice the ordering of the input nodes passed to the
-        # Node constructor.
+        # The base class (Node) constructor. Weights and bias
+        # are treated like inbound nodes.
         Node.__init__(self, [X, W, b])
 
     def forward(self):
         """
-        Set the value of this node to the linear transform output.
+        Performs the math behind a linear transform.
         """
-        self.value = np.dot(self.inbound_nodes[0].value, self.inbound_nodes[1].value) + self.inbound_nodes[2].value
+        X = self.inbound_nodes[0].value
+        W = self.inbound_nodes[1].value
+        b = self.inbound_nodes[2].value
+        self.value = np.dot(X, W) + b
 
     def backward(self):
         """
@@ -110,28 +113,27 @@ class Linear(Node):
 
 class Sigmoid(Node):
     """
-    You need to fix the `_sigmoid` and `forward` methods.
+    Represents a node that performs the sigmoid activation function.
     """
     def __init__(self, node):
+        # The base class constructor.
         Node.__init__(self, [node])
 
     def _sigmoid(self, x):
         """
         This method is separate from `forward` because it
-        will be used later with `backward` as well.
+        will be used with `backward` as well.
 
         `x`: A numpy array-like object.
-
-        Return the result of the sigmoid function.
         """
         return 1. / (1. + np.exp(-x))
 
     def forward(self):
         """
-        Set the value of this node to the result of the
-        sigmoid function, `_sigmoid`.
+        Perform the sigmoid function and set the value.
         """
-        self.value = self._sigmoid(self.inbound_nodes[0].value)
+        input_value = self.inbound_nodes[0].value
+        self.value = self._sigmoid(input_value)
 
     def backward(self):
         """
@@ -140,7 +142,7 @@ class Sigmoid(Node):
         """
         # Initialize the gradients to 0.
         self.gradients = {n: np.zeros_like(n.value) for n in self.inbound_nodes}
-        # Sum the derivative with respect to the input over all the outputs.
+        # Sum the partial with respect to the input over all the outputs.
         for n in self.outbound_nodes:
             grad_cost = n.gradients[self]
             sigmoid = self.value
@@ -172,15 +174,24 @@ class MSE(Node):
         y = self.inbound_nodes[0].value.reshape(-1, 1)
         a = self.inbound_nodes[1].value.reshape(-1, 1)
 
-        diff = y - a
-        self.value = np.mean(diff**2)
+        self.m = self.inbound_nodes[0].value.shape[0]
+        # Save the computed output for backward.
+        self.diff = y - a
+        self.value = np.mean(self.diff**2)
+
+    def backward(self):
+        """
+        Calculates the gradient of the cost.
+        """
+        self.gradients[self.inbound_nodes[0]] = (2 / self.m) * self.diff
+        self.gradients[self.inbound_nodes[1]] = (-2 / self.m) * self.diff
 
 
 def topological_sort(feed_dict):
     """
-    Sort generic nodes in topological order using Kahn's Algorithm.
+    Sort the nodes in topological order using Kahn's Algorithm.
 
-    `feed_dict`: A dictionary where the key is a `Input` node and the value is the respective value feed to that node.
+    `feed_dict`: A dictionary where the key is a `Input` Node and the value is the respective value feed to that Node.
 
     Returns a list of sorted nodes.
     """
@@ -234,4 +245,26 @@ def forward_and_backward(graph):
     # see: https://docs.python.org/2.3/whatsnew/section-slices.html
     for n in graph[::-1]:
         n.backward()
+
+
+def sgd_update(trainables, learning_rate=1e-2):
+    """
+    Updates the value of each trainable with SGD.
+
+    Arguments:
+
+        `trainables`: A list of `Input` Nodes representing weights/biases.
+        `learning_rate`: The learning rate.
+    """
+    # TODO: update all the `trainables` with SGD
+    # You can access and assign the value of a trainable with `value` attribute.
+    # Example:
+    # for t in trainables:
+    #   t.value = your implementation here
+    for t in trainables:
+        # Change the trainable's value by subtracting the learning rate
+        # multiplied by the partial of the cost with respect to this
+        # trainable.
+        partial = t.gradients[t]
+        t.value -= learning_rate * partial
 
